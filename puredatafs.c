@@ -24,17 +24,47 @@
 #include <sys/xattr.h>
 #endif
 
+static char source_dir[256];
+
+// ----- helper functions -----
+
+// prepend all pathes in the imcoming request with the source dir.
+static void prepend_source_dir(char *new_path, const char *origin)
+{
+	strcat(new_path, source_dir);
+
+	// SOURCE_DIR/ is not valid path.
+	if (strcmp("/", origin) == 0)
+		return;
+
+	strcat(new_path, origin);
+}
+
+// fix mode to all users can R/W/X.
+static void fix_mode(mode_t *mode)
+{
+	*mode |= (S_IRWXU | S_IRWXG | S_IRWXO);
+}
+
 static void *puredata_init(struct fuse_conn_info *conn)
 {
 	(void) conn;
+
+	memset(source_dir, 0, 256);
+
+	strcat(source_dir, "/tmp/from");
+
 	return NULL;
 }
 
 static int puredata_getattr(const char *path, struct stat *stbuf)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = lstat(path, stbuf);
+	prepend_source_dir((char*)new_path, path);
+
+	res = lstat(new_path, stbuf);
 	if (res == -1)
 		return -errno;
 
@@ -44,8 +74,13 @@ static int puredata_getattr(const char *path, struct stat *stbuf)
 static int puredata_access(const char *path, int mask)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = access(path, mask);
+	prepend_source_dir((char*)new_path, path);
+
+	printf("%s, %s, %s\n", path, new_path, strcmp(new_path, "/tmp/from") == 0 ? "true" : "false");
+
+	res = access(new_path, mask);
 	if (res == -1)
 		return -errno;
 
@@ -55,8 +90,11 @@ static int puredata_access(const char *path, int mask)
 static int puredata_readlink(const char *path, char *buf, size_t size)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = readlink(path, buf, size - 1);
+	prepend_source_dir((char*)new_path, path);
+
+	res = readlink(new_path, buf, size - 1);
 	if (res == -1)
 		return -errno;
 
@@ -70,11 +108,14 @@ static int puredata_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 {
 	DIR *dp;
 	struct dirent *de;
+	char new_path[256] = {0};
 
 	(void) offset;
 	(void) fi;
 
-	dp = opendir(path);
+	prepend_source_dir((char*)new_path, path);
+
+	dp = opendir(new_path);
 	if (dp == NULL)
 		return -errno;
 
@@ -94,17 +135,21 @@ static int puredata_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 static int puredata_mknod(const char *path, mode_t mode, dev_t rdev)
 {
 	int res;
+	char new_path[256] = {0};
+
+	fix_mode(&mode);
+	prepend_source_dir((char*)new_path, path);
 
 	/* On Linux this could just be 'mknod(path, mode, rdev)' but this
 	   is more portable */
 	if (S_ISREG(mode)) {
-		res = open(path, O_CREAT | O_EXCL | O_WRONLY, mode);
+		res = open(new_path, O_CREAT | O_EXCL | O_WRONLY, mode);
 		if (res >= 0)
 			res = close(res);
 	} else if (S_ISFIFO(mode))
-		res = mkfifo(path, mode);
+		res = mkfifo(new_path, mode);
 	else
-		res = mknod(path, mode, rdev);
+		res = mknod(new_path, mode, rdev);
 	if (res == -1)
 		return -errno;
 
@@ -114,8 +159,12 @@ static int puredata_mknod(const char *path, mode_t mode, dev_t rdev)
 static int puredata_mkdir(const char *path, mode_t mode)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = mkdir(path, mode);
+	fix_mode(&mode);
+	prepend_source_dir((char*)new_path, path);
+
+	res = mkdir(new_path, mode);
 	if (res == -1)
 		return -errno;
 
@@ -125,8 +174,11 @@ static int puredata_mkdir(const char *path, mode_t mode)
 static int puredata_unlink(const char *path)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = unlink(path);
+	prepend_source_dir((char*)new_path, path);
+
+	res = unlink(new_path);
 	if (res == -1)
 		return -errno;
 
@@ -136,8 +188,11 @@ static int puredata_unlink(const char *path)
 static int puredata_rmdir(const char *path)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = rmdir(path);
+	prepend_source_dir((char*)new_path, path);
+
+	res = rmdir(new_path);
 	if (res == -1)
 		return -errno;
 
@@ -147,8 +202,13 @@ static int puredata_rmdir(const char *path)
 static int puredata_symlink(const char *from, const char *to)
 {
 	int res;
+	char new_from[256] = {0};
+	char new_to[256] = {0};
 
-	res = symlink(from, to);
+	prepend_source_dir((char*)new_from, from);
+	prepend_source_dir((char*)new_to, to);
+
+	res = symlink(new_from, new_to);
 	if (res == -1)
 		return -errno;
 
@@ -158,8 +218,13 @@ static int puredata_symlink(const char *from, const char *to)
 static int puredata_rename(const char *from, const char *to)
 {
 	int res;
+	char new_from[256] = {0};
+	char new_to[256] = {0};
 
-	res = rename(from, to);
+	prepend_source_dir((char*)new_from, from);
+	prepend_source_dir((char*)new_to, to);
+
+	res = rename(new_from, new_to);
 	if (res == -1)
 		return -errno;
 
@@ -169,8 +234,13 @@ static int puredata_rename(const char *from, const char *to)
 static int puredata_link(const char *from, const char *to)
 {
 	int res;
+	char new_from[256] = {0};
+	char new_to[256] = {0};
 
-	res = link(from, to);
+	prepend_source_dir((char*)new_from, from);
+	prepend_source_dir((char*)new_to, to);
+
+	res = link(new_from, new_to);
 	if (res == -1)
 		return -errno;
 
@@ -180,8 +250,12 @@ static int puredata_link(const char *from, const char *to)
 static int puredata_chmod(const char *path, mode_t mode)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = chmod(path, mode);
+	fix_mode(&mode);
+	prepend_source_dir((char*)new_path, path);
+
+	res = chmod(new_path, mode);
 	if (res == -1)
 		return -errno;
 
@@ -191,8 +265,11 @@ static int puredata_chmod(const char *path, mode_t mode)
 static int puredata_chown(const char *path, uid_t uid, gid_t gid)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = lchown(path, uid, gid);
+	prepend_source_dir((char*)new_path, path);
+
+	res = lchown(new_path, uid, gid);
 	if (res == -1)
 		return -errno;
 
@@ -202,8 +279,11 @@ static int puredata_chown(const char *path, uid_t uid, gid_t gid)
 static int puredata_truncate(const char *path, off_t size)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = truncate(path, size);
+	prepend_source_dir((char*)new_path, path);
+
+	res = truncate(new_path, size);
 
 	if (res == -1)
 		return -errno;
@@ -217,9 +297,12 @@ static int puredata_utimens(const char *path, const struct timespec ts[2],
 {
 	(void) fi;
 	int res;
+	char new_path[256] = {0};
+
+	prepend_source_dir((char*)new_path, path);
 
 	/* don't use utime/utimes since they follow symlinks */
-	res = utimensat(0, path, ts, AT_SYMLINK_NOFOLLOW);
+	res = utimensat(0, new_path, ts, AT_SYMLINK_NOFOLLOW);
 	if (res == -1)
 		return -errno;
 
@@ -231,8 +314,12 @@ static int puredata_create(const char *path, mode_t mode,
 		      struct fuse_file_info *fi)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = open(path, fi->flags, mode);
+	fix_mode(&mode);
+	prepend_source_dir((char*)new_path, path);
+
+	res = open(new_path, fi->flags, mode);
 	if (res == -1)
 		return -errno;
 
@@ -243,8 +330,11 @@ static int puredata_create(const char *path, mode_t mode,
 static int puredata_open(const char *path, struct fuse_file_info *fi)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = open(path, fi->flags);
+	prepend_source_dir((char*)new_path, path);
+
+	res = open(new_path, fi->flags);
 	if (res == -1)
 		return -errno;
 
@@ -257,9 +347,12 @@ static int puredata_read(const char *path, char *buf, size_t size, off_t offset,
 {
 	int fd;
 	int res;
+	char new_path[256] = {0};
+
+	prepend_source_dir((char*)new_path, path);
 
 	if(fi == NULL)
-		fd = open(path, O_RDONLY);
+		fd = open(new_path, O_RDONLY);
 	else
 		fd = fi->fh;
 
@@ -280,10 +373,13 @@ static int puredata_write(const char *path, const char *buf, size_t size,
 {
 	int fd;
 	int res;
+	char new_path[256] = {0};
+
+	prepend_source_dir((char*)new_path, path);
 
 	(void) fi;
 	if(fi == NULL)
-		fd = open(path, O_WRONLY);
+		fd = open(new_path, O_WRONLY);
 	else
 		fd = fi->fh;
 
@@ -302,8 +398,11 @@ static int puredata_write(const char *path, const char *buf, size_t size,
 static int puredata_statfs(const char *path, struct statvfs *stbuf)
 {
 	int res;
+	char new_path[256] = {0};
 
-	res = statvfs(path, stbuf);
+	prepend_source_dir((char*)new_path, path);
+
+	res = statvfs(new_path, stbuf);
 	if (res == -1)
 		return -errno;
 
@@ -335,6 +434,9 @@ static int puredata_fallocate(const char *path, int mode,
 {
 	int fd;
 	int res;
+	char new_path[256] = {0};
+
+	prepend_source_dir((char*)new_path, path);
 
 	(void) fi;
 
@@ -342,7 +444,7 @@ static int puredata_fallocate(const char *path, int mode,
 		return -EOPNOTSUPP;
 
 	if(fi == NULL)
-		fd = open(path, O_WRONLY);
+		fd = open(new_path, O_WRONLY);
 	else
 		fd = fi->fh;
 
@@ -362,7 +464,11 @@ static int puredata_fallocate(const char *path, int mode,
 static int puredata_setxattr(const char *path, const char *name, const char *value,
 			size_t size, int flags)
 {
-	int res = lsetxattr(path, name, value, size, flags);
+	char new_path[256] = {0};
+
+	prepend_source_dir((char*)new_path, path);
+
+	int res = lsetxattr(new_path, name, value, size, flags);
 	if (res == -1)
 		return -errno;
 	return 0;
@@ -371,7 +477,11 @@ static int puredata_setxattr(const char *path, const char *name, const char *val
 static int puredata_getxattr(const char *path, const char *name, char *value,
 			size_t size)
 {
-	int res = lgetxattr(path, name, value, size);
+	char new_path[256] = {0};
+
+	prepend_source_dir((char*)new_path, path);
+
+	int res = lgetxattr(new_path, name, value, size);
 	if (res == -1)
 		return -errno;
 	return res;
@@ -379,7 +489,11 @@ static int puredata_getxattr(const char *path, const char *name, char *value,
 
 static int puredata_listxattr(const char *path, char *list, size_t size)
 {
-	int res = llistxattr(path, list, size);
+	char new_path[256] = {0};
+
+	prepend_source_dir((char*)new_path, path);
+
+	int res = llistxattr(new_path, list, size);
 	if (res == -1)
 		return -errno;
 	return res;
@@ -387,7 +501,11 @@ static int puredata_listxattr(const char *path, char *list, size_t size)
 
 static int puredata_removexattr(const char *path, const char *name)
 {
-	int res = lremovexattr(path, name);
+	char new_path[256] = {0};
+
+	prepend_source_dir((char*)new_path, path);
+
+	int res = lremovexattr(new_path, name);
 	if (res == -1)
 		return -errno;
 	return 0;
@@ -403,9 +521,14 @@ static ssize_t puredata_copy_file_range(const char *path_in,
 {
 	int fd_in, fd_out;
 	ssize_t res;
+	char new_path_in[256] = {0};
+	char new_path_out[256] = {0};
+
+	prepend_source_dir((char*)new_path_in, path_in);
+	prepend_source_dir((char*)new_path_out, path_out);
 
 	if(fi_in == NULL)
-		fd_in = open(path_in, O_RDONLY);
+		fd_in = open(new_path_in, O_RDONLY);
 	else
 		fd_in = fi_in->fh;
 
@@ -413,7 +536,7 @@ static ssize_t puredata_copy_file_range(const char *path_in,
 		return -errno;
 
 	if(fi_out == NULL)
-		fd_out = open(path_out, O_WRONLY);
+		fd_out = open(new_path_out, O_WRONLY);
 	else
 		fd_out = fi_out->fh;
 
