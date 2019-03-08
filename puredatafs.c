@@ -78,8 +78,6 @@ static int puredata_access(const char *path, int mask)
 
 	prepend_source_dir((char*)new_path, path);
 
-	printf("%s, %s, %s\n", path, new_path, strcmp(new_path, "/tmp/from") == 0 ? "true" : "false");
-
 	res = access(new_path, mask);
 	if (res == -1)
 		return -errno;
