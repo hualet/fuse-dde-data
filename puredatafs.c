@@ -52,7 +52,7 @@ static void *puredata_init(struct fuse_conn_info *conn)
 
 	memset(source_dir, 0, 256);
 
-	strcat(source_dir, "/tmp/from");
+	strcat(source_dir, "/data");
 
 	return NULL;
 }
