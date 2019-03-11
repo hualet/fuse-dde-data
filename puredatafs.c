@@ -43,7 +43,7 @@ static void prepend_source_dir(char *new_path, const char *origin)
 // fix mode to all users can R/W/X.
 static void fix_mode(mode_t *mode)
 {
-	*mode |= (S_IRWXU | S_IRWXG | S_IRWXO);
+	*mode |= (S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
 }
 
 static void *puredata_init(struct fuse_conn_info *conn)
